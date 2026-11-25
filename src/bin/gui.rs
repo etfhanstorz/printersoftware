@@ -121,9 +121,11 @@ impl eframe::App for App {
         if self.busy {
             root.ctx().request_repaint_after(Duration::from_millis(200));
         }
+        self.handle_keys(root);
 
-        egui::CentralPanel::default().show_inside(root, |ui| {
+        egui::CentralPanel::default().show(root, |ui| {
             ui.heading("A1 Control");
+            ui.label("Keys: W/S = Y, A/D = X, R/F = Z, Space = emergency stop");
             ui.add_enabled_ui(!self.busy, |ui| {
                 egui::CollapsingHeader::new("Printer connection")
                     .default_open(true)
@@ -235,6 +237,45 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// WASD (plus R/F for Z) jogs one step per key press; Space is emergency stop.
+    /// Ignored while typing in a text box.
+    fn handle_keys(&mut self, root: &egui::Ui) {
+        if root.ctx().egui_wants_keyboard_input() {
+            return;
+        }
+        let (jogs, stop) = root.input(|i| {
+            let mut jogs = Vec::new();
+            for (key, axis, sign) in [
+                (egui::Key::A, Axis::X, -1.0),
+                (egui::Key::D, Axis::X, 1.0),
+                (egui::Key::S, Axis::Y, -1.0),
+                (egui::Key::W, Axis::Y, 1.0),
+                (egui::Key::F, Axis::Z, -1.0),
+                (egui::Key::R, Axis::Z, 1.0),
+            ] {
+                if i.key_pressed(key) {
+                    jogs.push((axis, sign));
+                }
+            }
+            (jogs, i.key_pressed(egui::Key::Space))
+        });
+
+        if stop {
+            self.log.push("> EMERGENCY STOP (Space)".into());
+            self.spawn(Box::new(|p| { p.stop()?; Ok("Stop sent".into()) }));
+        }
+        for (axis, sign) in jogs {
+            let dist = sign * self.jog_mm;
+            match gcode::jog(axis, dist, self.feed) {
+                Ok(lines) => self.run(
+                    &format!("Jog {} {dist}", axis.letter()),
+                    Box::new(move |p| { p.send_gcode(&lines)?; Ok("Move sent".into()) }),
+                ),
+                Err(e) => self.log.push(format!("Error: {e}")),
+            }
+        }
+    }
+
     fn filament_job(&mut self, mm: f64) {
         let feed = 300.0;
         self.run(
