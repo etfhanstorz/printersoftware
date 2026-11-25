@@ -111,6 +111,16 @@ fn load_saved_connection() -> SavedConnection {
         .unwrap_or_default()
 }
 
+/// Send G-code and report what the printer answered.
+fn send_and_report(p: &mut Printer, lines: &[String]) -> Result<String> {
+    p.send_gcode(lines)?;
+    let reply = p.wait_result(Duration::from_secs(3))?;
+    Ok(match reply {
+        Some(r) => format!("Move sent. Printer replied: {r}"),
+        None => "Move sent. Printer gave no reply.".into(),
+    })
+}
+
 fn fmt(t: Option<f64>) -> String {
     t.map(|v| format!("{v:.1}")).unwrap_or_else(|| "?".into())
 }
@@ -181,7 +191,7 @@ impl eframe::App for App {
                                 match gcode::jog(axis, dist, self.feed) {
                                     Ok(lines) => self.run(
                                         &format!("Jog {} {dist}", axis.letter()),
-                                        Box::new(move |p| { p.send_gcode(&lines)?; Ok("Move sent".into()) }),
+                                        Box::new(move |p| send_and_report(p, &lines)),
                                     ),
                                     Err(e) => self.log.push(format!("Error: {e}")),
                                 }
@@ -269,7 +279,7 @@ impl App {
             match gcode::jog(axis, dist, self.feed) {
                 Ok(lines) => self.run(
                     &format!("Jog {} {dist}", axis.letter()),
-                    Box::new(move |p| { p.send_gcode(&lines)?; Ok("Move sent".into()) }),
+                    Box::new(move |p| send_and_report(p, &lines)),
                 ),
                 Err(e) => self.log.push(format!("Error: {e}")),
             }

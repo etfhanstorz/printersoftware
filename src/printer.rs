@@ -94,6 +94,26 @@ impl Printer {
         Ok(())
     }
 
+    /// Wait briefly for the printer's reply to the last command. Returns the
+    /// printer's result and reason text, if it answered in time.
+    pub fn wait_result(&mut self, timeout: Duration) -> Result<Option<String>> {
+        let deadline = Instant::now() + timeout;
+        while let Some((kind, body)) = self.next_packet(deadline)? {
+            if kind != PUBLISH {
+                continue;
+            }
+            let (_, payload) = split_publish(&body)?;
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(payload) else { continue };
+            if let Some(print) = v.get("print") {
+                if let Some(result) = print.get("result").and_then(|x| x.as_str()) {
+                    let reason = print.get("reason").and_then(|x| x.as_str()).unwrap_or("");
+                    return Ok(Some(format!("{result} {reason}").trim().to_string()));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Emergency stop: halts the current job.
     pub fn stop(&mut self) -> Result<()> {
         self.publish_print("stop", None)
