@@ -25,6 +25,7 @@ struct App {
     feed: f64,
     nozzle_target: f64,
     filament_mm: f64,
+    filament_feed: f64,
     fan_pct: f64,
     busy: bool,
     log: Vec<String>,
@@ -46,6 +47,7 @@ impl App {
             feed: 3000.0,
             nozzle_target: 200.0,
             filament_mm: 50.0,
+            filament_feed: 300.0,
             fan_pct: 50.0,
             busy: false,
             log: vec!["Ready. Press Status to check the printer.".into()],
@@ -271,6 +273,10 @@ impl eframe::App for App {
                 ui.separator();
                 ui.label("Filament (needs nozzle at 170 C or more)");
                 ui.horizontal(|ui| {
+                    ui.label("Speed");
+                    ui.add(egui::DragValue::new(&mut self.filament_feed).range(1.0..=1000.0).speed(10.0).suffix(" mm/min"));
+                });
+                ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut self.filament_mm).range(1.0..=200.0).suffix(" mm"));
                     if ui.button("Load").clicked() {
                         self.filament_job(self.filament_mm);
@@ -343,7 +349,7 @@ impl App {
     }
 
     fn filament_job(&mut self, mm: f64) {
-        let feed = 300.0;
+        let feed = self.filament_feed;
         self.run(
             if mm < 0.0 { "Unload filament" } else { "Load filament" },
             Box::new(move |p| {
