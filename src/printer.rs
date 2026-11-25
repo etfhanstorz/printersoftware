@@ -25,6 +25,8 @@ pub struct Status {
     pub gcode_state: Option<String>,
     pub nozzle_temp: Option<f64>,
     pub bed_temp: Option<f64>,
+    /// Fan name and raw speed value as the printer reports it (0-15 scale).
+    pub fans: Vec<(String, String)>,
 }
 
 pub struct Printer {
@@ -143,6 +145,13 @@ impl Printer {
                 }
                 if let Some(t) = print.get("bed_temper").and_then(|x| x.as_f64()) {
                     status.bed_temp = Some(t);
+                }
+                for key in ["cooling_fan_speed", "heatbreak_fan_speed", "big_fan1_speed", "big_fan2_speed"] {
+                    if let Some(v) = print.get(key) {
+                        let text = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+                        status.fans.retain(|(k, _)| k != key);
+                        status.fans.push((key.to_string(), text));
+                    }
                 }
             }
             if status.nozzle_temp.is_some() {

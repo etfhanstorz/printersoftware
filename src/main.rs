@@ -58,6 +58,15 @@ enum Cmd {
     },
     /// Emergency stop: halts the current job
     Stop,
+    /// Move the head around a circle starting from where it is now
+    Circle {
+        #[arg(default_value_t = 10.0)]
+        radius_mm: f64,
+        #[arg(long, default_value_t = 36)]
+        segments: u32,
+        #[arg(long, default_value_t = 3000.0)]
+        feed: f64,
+    },
 }
 
 fn main() -> Result<()> {
@@ -81,6 +90,12 @@ fn main() -> Result<()> {
             println!("state:  {}", s.gcode_state.unwrap_or_else(|| "unknown".into()));
             println!("nozzle: {} C", fmt_temp(s.nozzle_temp));
             println!("bed:    {} C", fmt_temp(s.bed_temp));
+            if s.fans.is_empty() {
+                println!("fans:   not reported");
+            }
+            for (name, speed) in &s.fans {
+                println!("{name}: {speed}");
+            }
         }
         Cmd::Home { axes } => {
             let parsed = axes.iter().map(|a| Axis::parse(a)).collect::<Result<Vec<_>>>()?;
@@ -96,6 +111,9 @@ fn main() -> Result<()> {
         Cmd::Load { mm, feed } => filament(&mut p, mm, feed)?,
         Cmd::Unload { mm, feed } => filament(&mut p, -mm.abs(), feed)?,
         Cmd::Stop => p.stop()?,
+        Cmd::Circle { radius_mm, segments, feed } => {
+            p.send_gcode(&a1_control::shapes::circle(radius_mm, segments, feed)?)?;
+        }
     }
     Ok(())
 }

@@ -102,6 +102,15 @@ pub fn move_filament(length_mm: f64, feedrate_mm_min: f64, nozzle_temp_c: f64) -
     ])
 }
 
+/// Part-cooling fan at a percentage (0 = off, 100 = full). P1 is the part fan.
+pub fn fan(percent: u8) -> Result<Vec<String>> {
+    if percent > 100 {
+        bail!("fan speed must be between 0 and 100 %");
+    }
+    let s = (f64::from(percent) * 255.0 / 100.0).round() as u32;
+    Ok(vec![format!("M106 P1 S{s}")])
+}
+
 fn check_finite(v: f64, what: &str) -> Result<()> {
     if !v.is_finite() {
         bail!("{what} must be a finite number");

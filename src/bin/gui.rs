@@ -3,15 +3,19 @@
 //! printer in a background thread, so the window stays responsive.
 
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use eframe::egui;
 
 use a1_control::gcode::{self, Axis};
-use a1_control::printer::Printer;
+use a1_control::printer::{Printer, Status};
 
 type Job = Box<dyn FnOnce(&mut Printer) -> Result<String> + Send>;
+
+/// Result text used for background refreshes, so they don't clear `busy` or fill the log.
+const POLL_MARK: &str = "__poll__";
 
 struct App {
     ip: String,
@@ -21,8 +25,11 @@ struct App {
     feed: f64,
     nozzle_target: f64,
     filament_mm: f64,
+    fan_pct: f64,
     busy: bool,
     log: Vec<String>,
+    live: Arc<Mutex<Status>>,
+    last_poll: Instant,
     tx: Sender<Result<String, String>>,
     rx: Receiver<Result<String, String>>,
 }
@@ -39,8 +46,11 @@ impl App {
             feed: 3000.0,
             nozzle_target: 200.0,
             filament_mm: 50.0,
+            fan_pct: 50.0,
             busy: false,
             log: vec!["Ready. Press Status to check the printer.".into()],
+            live: Arc::new(Mutex::new(Status::default())),
+            last_poll: Instant::now() - Duration::from_secs(60),
             tx,
             rx,
         }
@@ -71,6 +81,9 @@ impl App {
 
     fn drain_results(&mut self) {
         while let Ok(result) = self.rx.try_recv() {
+            if matches!(&result, Ok(m) if m == POLL_MARK) {
+                continue;
+            }
             self.busy = false;
             match result {
                 Ok(msg) => self.log.push(msg),
@@ -133,9 +146,34 @@ impl eframe::App for App {
         }
         self.handle_keys(root);
 
+        // Refresh temperatures and fans every 3 seconds while idle.
+        if !self.busy && self.last_poll.elapsed() >= Duration::from_secs(3) {
+            self.last_poll = Instant::now();
+            let live = self.live.clone();
+            self.spawn(Box::new(move |p| {
+                let s = p.read_status(Duration::from_secs(3))?;
+                if let Ok(mut slot) = live.lock() {
+                    *slot = s;
+                }
+                Ok(POLL_MARK.to_string())
+            }));
+        }
+        root.ctx().request_repaint_after(Duration::from_millis(500));
+        let st = self.live.lock().map(|s| s.clone()).unwrap_or_default();
+
         egui::CentralPanel::default().show(root, |ui| {
             ui.heading("A1 Control");
             ui.label("Keys: W/S = Y, A/D = X, R/F = Z, Space = emergency stop");
+            ui.group(|ui| {
+                ui.label(format!(
+                    "State: {}   Nozzle: {} C   Bed: {} C",
+                    st.gcode_state.clone().unwrap_or_else(|| "?".into()),
+                    fmt(st.nozzle_temp),
+                    fmt(st.bed_temp)
+                ));
+                let fans: Vec<String> = st.fans.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                ui.label(if fans.is_empty() { "Fans: not reported yet".to_string() } else { fans.join("   ") });
+            });
             ui.add_enabled_ui(!self.busy, |ui| {
                 egui::CollapsingHeader::new("Printer connection")
                     .default_open(true)
@@ -208,6 +246,24 @@ impl eframe::App for App {
                         match gcode::set_nozzle_temp(self.nozzle_target) {
                             Ok(lines) => self.run("Heat nozzle", Box::new(move |p| { p.send_gcode(&lines)?; Ok("Heating".into()) })),
                             Err(e) => self.log.push(format!("Error: {e}")),
+                        }
+                    }
+                });
+
+                ui.separator();
+                ui.label("Part fan");
+                ui.horizontal(|ui| {
+                    ui.add(egui::Slider::new(&mut self.fan_pct, 0.0..=100.0).suffix(" %"));
+                    if ui.button("Set fan").clicked() {
+                        match gcode::fan(self.fan_pct.round() as u8) {
+                            Ok(lines) => self.run("Set fan", Box::new(move |p| { p.send_gcode(&lines)?; Ok("Fan set".into()) })),
+                            Err(e) => self.log.push(format!("Error: {e}")),
+                        }
+                    }
+                    if ui.button("Fan off").clicked() {
+                        self.fan_pct = 0.0;
+                        if let Ok(lines) = gcode::fan(0) {
+                            self.run("Fan off", Box::new(move |p| { p.send_gcode(&lines)?; Ok("Fan off".into()) }));
                         }
                     }
                 });
