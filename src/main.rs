@@ -1,13 +1,10 @@
-mod gcode;
-mod printer;
-
 use std::time::Duration;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
-use gcode::Axis;
-use printer::Printer;
+use a1_control::gcode::{self, Axis};
+use a1_control::printer::{self, Printer};
 
 /// Manual control for a Bambu A1 over LAN mode.
 #[derive(Parser)]
