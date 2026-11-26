@@ -87,8 +87,8 @@ pub fn move_filament(length_mm: f64, feedrate_mm_min: f64, nozzle_temp_c: f64) -
     if length_mm.abs() > MAX_FILAMENT_MM {
         bail!("length {length_mm} mm exceeds the per-move limit of {MAX_FILAMENT_MM} mm");
     }
-    if !(1.0..=1_000.0).contains(&feedrate_mm_min) {
-        bail!("filament feedrate must be between 1 and 1000 mm/min");
+    if !feedrate_mm_min.is_finite() || feedrate_mm_min <= 0.0 {
+        bail!("filament feedrate must be a positive number");
     }
     if nozzle_temp_c < MIN_EXTRUDE_TEMP_C {
         bail!(

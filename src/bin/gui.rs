@@ -274,7 +274,7 @@ impl eframe::App for App {
                 ui.label("Filament (needs nozzle at 170 C or more)");
                 ui.horizontal(|ui| {
                     ui.label("Speed");
-                    ui.add(egui::DragValue::new(&mut self.filament_feed).range(1.0..=1000.0).speed(10.0).suffix(" mm/min"));
+                    ui.add(egui::DragValue::new(&mut self.filament_feed).range(1.0..=10_000.0).speed(10.0).suffix(" mm/min"));
                 });
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut self.filament_mm).range(1.0..=200.0).suffix(" mm"));
@@ -357,8 +357,9 @@ impl App {
                 let temp = s
                     .nozzle_temp
                     .ok_or_else(|| anyhow!("could not read nozzle temperature; not moving filament"))?;
-                p.send_gcode(&gcode::move_filament(mm, feed, temp)?)?;
-                Ok(format!("Filament moved {mm} mm"))
+                let lines = gcode::move_filament(mm, feed, temp)?;
+                let reply = send_and_report(p, &lines)?;
+                Ok(format!("Filament {mm} mm at {feed} mm/min (nozzle {temp:.0} C). {reply}"))
             }),
         );
     }
